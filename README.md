@@ -102,7 +102,7 @@ Index Type: Events
 
 ### 4. Import the dashboard
 - Go to Settings → User Interface → Views → Create New View
-- Select Dashboard (Classic) and paste the contents of `cti_otx_dashboard.xml`
+- Select Dashboard (Classic) and paste the contents of `splunk-otx-cti-dashboard.xml`
 - Or navigate to any existing dashboard → Edit → Source and replace with the XML
 
 ### 5. Verify data is flowing
