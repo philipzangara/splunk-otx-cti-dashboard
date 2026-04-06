@@ -1,0 +1,635 @@
+<form version="1.1" theme="dark">
+  <label>CTI - AlienVault OTX Threat Intelligence</label>
+  <description>Threat Intelligence dashboard powered by AlienVault OTX</description>
+  <fieldset submitButton="false" autoRun="true">
+    <input type="time" token="time_range" searchWhenChanged="true">
+      <label>Time Range</label>
+      <default>
+        <earliest>-30d</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="ioc_type" searchWhenChanged="true">
+      <label>IOC Type</label>
+      <choice value="*">All</choice>
+      <choice value="IPv4">IPv4</choice>
+      <choice value="domain">Domain</choice>
+      <choice value="URL">URL</choice>
+      <choice value="FileHash-MD5">FileHash-MD5</choice>
+      <choice value="FileHash-SHA256">FileHash-SHA256</choice>
+      <choice value="FileHash-SHA1">FileHash-SHA1</choice>
+      <default>*</default>
+    </input>
+    <input type="dropdown" token="threat_actor" searchWhenChanged="true">
+      <label>Threat Actor</label>
+      <choice value="*">All</choice>
+      <search>
+        <query>
+          index=otx sourcetype="otx:pulse" earliest=0
+          | where adversary!=""
+          | stats count by adversary
+          | sort adversary
+        </query>
+      </search>
+      <fieldForLabel>adversary</fieldForLabel>
+      <fieldForValue>adversary</fieldForValue>
+      <default>*</default>
+    </input>
+  </fieldset>
+  
+  <!-- ROW 1: KPIs -->
+  <row>
+    <panel>
+      <title>Unique Hosts with IOC Hits (Last 24h)</title>
+      <single>
+        <search>
+          <query>
+            index=sysmon (EventCode=22 OR EventCode=3 OR EventCode=1 OR EventCode=7 OR EventCode=11)
+            | eval indicator=case(
+                EventCode=22, QueryName,
+                EventCode=3, DestinationIp,
+                true(), null()
+              )
+            | eval hash=if(match(EventCode,"1|7|11"),lower(replace(Hashes,".*SHA256=([A-F0-9]+).*","\1")),null())
+            | eval ioc=coalesce(indicator,hash)
+            | where isnotnull(ioc)
+            | join type=inner ioc [
+                search index=otx sourcetype="otx:indicator" type=$ioc_type$ earliest=0
+                | eval indicator=lower(indicator)
+                | rename indicator as ioc
+                | dedup ioc
+                | fields ioc
+              ]
+            | stats dc(host) as unique_hosts
+          </query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xf1813f","0xdc4e41"]</option>
+        <option name="rangeValues">[0,1,5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Total IOC Hits (Last 24h)</title>
+      <single>
+        <search>
+          <query>
+            index=sysmon (EventCode=22 OR EventCode=3 OR EventCode=1 OR EventCode=7 OR EventCode=11)
+            | eval indicator=case(
+                EventCode=22, QueryName,
+                EventCode=3, DestinationIp,
+                true(), null()
+              )
+            | eval hash=if(match(EventCode,"1|7|11"),lower(replace(Hashes,".*SHA256=([A-F0-9]+).*","\1")),null())
+            | eval ioc=coalesce(indicator,hash)
+            | where isnotnull(ioc)
+            | join type=inner ioc [
+                search index=otx sourcetype="otx:indicator" type=$ioc_type$ earliest=0
+                | eval indicator=lower(indicator)
+                | rename indicator as ioc
+                | dedup ioc
+                | fields ioc
+              ]
+            | stats dc(ioc) as total_hits
+          </query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xf1813f","0xdc4e41"]</option>
+        <option name="rangeValues">[0,1,5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Critical TTPs in Environment</title>
+      <single>
+        <search>
+          <query>
+            index=sysmon
+            | eval technique_id=case(
+                EventCode=1 AND match(Image,"powershell.exe|pwsh.exe|cmd.exe|wscript.exe|cscript.exe|mshta.exe"), "T1059",
+                EventCode=8, "T1055",
+                EventCode=11, "T1027",
+                EventCode=13, "T1112",
+                EventCode=22, "T1071",
+                EventCode=3,  "T1071",
+                true(), null()
+              )
+            | where isnotnull(technique_id)
+            | join type=inner technique_id [
+                search index=otx sourcetype="otx:pulse" earliest=0
+                | mvexpand attack_ids{}
+                | rename attack_ids{} as technique_id
+                | where technique_id!="" AND technique_id!="null"
+                | stats count as pulse_count by technique_id
+              ]
+            | stats count as sysmon_hits by technique_id
+            | where sysmon_hits &gt; 200
+            | stats count as critical_ttps
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xf1813f","0xdc4e41"]</option>
+        <option name="rangeValues">[0,1,3]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Malicious IPs Detected (Last 24h)</title>
+      <single>
+        <search>
+          <query>
+            index=sysmon EventCode=3
+            | rename DestinationIp as indicator
+            | join type=inner indicator [
+                search index=otx sourcetype="otx:indicator" type="IPv4" earliest=0
+                | where "$ioc_type$"="*" OR "$ioc_type$"="IPv4"
+                | dedup indicator
+                | fields indicator
+              ]
+            | stats dc(indicator) as count
+          </query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xf1813f","0xdc4e41"]</option>
+        <option name="rangeValues">[0,1,5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Unique Source Countries (Last 24h)</title>
+      <single>
+        <search>
+          <query>
+            index=sysmon EventCode=3
+            | rename DestinationIp as indicator
+            | join type=inner indicator [
+                search index=otx sourcetype="otx:indicator" type="IPv4" earliest=0
+                | where "$ioc_type$"="*" OR "$ioc_type$"="IPv4"
+                | dedup indicator
+                | fields indicator
+              ]
+            | iplocation indicator
+            | where Country!=""
+            | stats dc(Country) as count
+          </query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="colorBy">value</option>
+        <option name="colorMode">block</option>
+        <option name="rangeColors">["0x53a051","0xf8be34","0xf1813f","0xdc4e41"]</option>
+        <option name="rangeValues">[0,1,5]</option>
+        <option name="useColors">1</option>
+      </single>
+    </panel>
+  </row>
+  
+  <!-- ROW 2: Environment TTP Hits -->
+  <row>
+    <panel>
+      <title>OTX Threat Intel Hits - TTPs Active in Your Environment</title>
+      <table>
+        <search>
+          <query>
+            index=sysmon
+            | eval technique_id=case(
+                EventCode=1 AND match(Image,"powershell.exe|pwsh.exe|cmd.exe|wscript.exe|cscript.exe|mshta.exe"), "T1059",
+                EventCode=8, "T1055",
+                EventCode=11, "T1027",
+                EventCode=13, "T1112",
+                EventCode=22, "T1071",
+                EventCode=3,  "T1071",
+                true(), null()
+              )
+            | where isnotnull(technique_id)
+            | join type=left technique_id [
+                search index=otx sourcetype="otx:pulse" earliest=0
+                | mvexpand attack_ids{}
+                | rename attack_ids{} as technique_id
+                | where technique_id!="" AND technique_id!="null"
+                | stats count as pulse_count values(name) as pulse_names values(adversary) as actors by technique_id
+              ]
+            | where isnotnull(pulse_count)
+            | stats count as sysmon_hits max(_time) as last_seen first(pulse_names) as pulse_names first(actors) as actors by technique_id
+            | eval last_seen=strftime(last_seen,"%Y-%m-%d %H:%M"),
+                   pulse_names=substr(pulse_names,1,50)."...",
+                   severity=case(sysmon_hits&gt;200,"Critical",sysmon_hits&gt;50,"High",sysmon_hits&gt;10,"Medium",true(),"Low"),
+                   _sev_sort=case(severity="Critical","1",severity="High","2",severity="Medium","3",true(),"4")
+            | sort _sev_sort - sysmon_hits
+            | fields - _sev_sort
+            | rename technique_id as "Technique ID"
+                     sysmon_hits  as "Environment Hits"
+                     last_seen    as "Last Seen"
+                     pulse_names  as "OTX Pulse"
+                     actors       as "Threat Actor"
+                     severity     as "Severity"
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051}</colorPalette>
+        </format>
+        <format type="color" field="Environment Hits">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  
+  <!-- ROW 3: Malicious IP Geo Map -->
+  <row>
+    <panel>
+      <title>Malicious IP Hits by Location</title>
+      <map>
+        <search>
+          <query>
+            index=sysmon EventCode=3
+            | rename DestinationIp as indicator
+            | join type=inner indicator [
+                search index=otx sourcetype="otx:indicator" type="IPv4" earliest=0
+                | where "$ioc_type$"="*" OR "$ioc_type$"="IPv4"
+                | dedup indicator
+                | fields indicator
+              ]
+            | iplocation indicator
+            | where isnotnull(lat) AND isnotnull(lon)
+            | geostats latfield=lat longfield=lon count globallimit=0
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="mapping.type">marker</option>
+        <option name="mapping.markerLayer.markerOpacity">0.8</option>
+        <option name="mapping.markerLayer.markerMinSize">10</option>
+        <option name="mapping.markerLayer.markerMaxSize">50</option>
+        <option name="mapping.map.zoom">2</option>
+        <option name="mapping.map.center">(20,0)</option>
+        <option name="mapping.tileLayer.url">https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png</option>
+        <option name="mapping.tileLayer.attribution">© OpenStreetMap © CARTO</option>
+        <option name="mapping.data.maxClusters">100</option>
+        <option name="drilldown">all</option>
+        <option name="refresh.display">progressbar</option>
+      </map>
+    </panel>
+  </row>
+  
+  <!-- ROW 4: Top Countries + Top IPs -->
+  <row>
+    <panel>
+      <title>Top Countries by Hit Count</title>
+      <table>
+        <search>
+          <query>
+            index=sysmon EventCode=3
+            | rename DestinationIp as indicator
+            | join type=inner indicator [
+                search index=otx sourcetype="otx:indicator" type="IPv4" earliest=0
+                | where "$ioc_type$"="*" OR "$ioc_type$"="IPv4"
+                | dedup indicator
+                | fields indicator
+              ]
+            | iplocation indicator
+            | where Country!=""
+            | stats count as hits dc(indicator) as unique_ips dc(host) as affected_hosts by Country
+            | eval severity=case(hits&gt;100,"Critical",hits&gt;20,"High",hits&gt;5,"Medium",true(),"Low"),
+                   _sev_sort=case(severity="Critical","1",severity="High","2",severity="Medium","3",true(),"4")
+            | sort _sev_sort - hits
+            | fields - _sev_sort
+            | rename Country        as "Country"
+                     hits           as "Hits"
+                     unique_ips     as "Unique IPs"
+                     affected_hosts as "Affected Hosts"
+                     severity       as "Severity"
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051}</colorPalette>
+        </format>
+        <format type="color" field="Hits">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+    <panel>
+      <title>Top Malicious IPs</title>
+      <table>
+        <search>
+          <query>
+            index=sysmon EventCode=3
+            | rename DestinationIp as indicator
+            | join type=inner indicator [
+                search index=otx sourcetype="otx:indicator" type="IPv4" earliest=0
+                | where "$ioc_type$"="*" OR "$ioc_type$"="IPv4"
+                | dedup indicator
+                | fields indicator
+              ]
+            | iplocation indicator
+            | join type=left indicator [
+                search index=otx sourcetype="otx:pulse" adversary=$threat_actor$ earliest=0
+                | stats values(adversary) as adversary by indicator
+              ]
+            | stats count as hits dc(host) as affected_hosts max(_time) as last_seen
+                    first(Country) as country first(City) as city
+                    first(adversary) as adversary by indicator
+            | eval last_seen=strftime(last_seen,"%Y-%m-%d %H:%M"),
+                   adversary=if(isnull(adversary) OR adversary="","Unknown",adversary),
+                   location=if(city!="" AND city!="unknown",city.", ".country,country),
+                   severity=case(hits&gt;100,"Critical",hits&gt;20,"High",hits&gt;5,"Medium",true(),"Low"),
+                   _sev_sort=case(severity="Critical","1",severity="High","2",severity="Medium","3",true(),"4")
+            | sort _sev_sort - hits
+            | fields - _sev_sort country city
+            | rename indicator      as "IP"
+                     hits           as "Hits"
+                     affected_hosts as "Affected Hosts"
+                     last_seen      as "Last Seen"
+                     location       as "Location"
+                     adversary      as "Threat Actor"
+                     severity       as "Severity"
+            | head 50
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="wrap">true</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051}</colorPalette>
+        </format>
+        <format type="color" field="Hits">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  
+  <!-- ROW 5: Domain Hits + File Hits -->
+  <row>
+    <panel>
+      <title>OTX Malicious Domain Hits - Your Environment (Last 7 Days)</title>
+      <table>
+        <search>
+          <query>
+            index=sysmon EventCode=22
+            | rename QueryName as indicator
+            | join type=inner indicator [
+                search index=otx sourcetype="otx:indicator" type="domain" earliest=0
+                | where "$ioc_type$"="*" OR "$ioc_type$"="domain"
+                | dedup indicator
+                | fields indicator
+              ]
+            | eval Process=mvindex(split(Image,"\\"),-1),
+                   Time=strftime(_time,"%Y-%m-%d %H:%M")
+            | rename indicator as "Malicious Domain"
+                     host      as "Host"
+            | sort - _time
+            | table Time "Malicious Domain" Host Process
+          </query>
+          <earliest>-7d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="refresh.display">progressbar</option>
+      </table>
+    </panel>
+    <panel>
+      <title>OTX Malicious File Hits - Your Environment</title>
+      <table>
+        <search>
+          <query>
+            index=sysmon (EventCode=1 OR EventCode=7 OR EventCode=11)
+            | rex field=Hashes "SHA256=(?&lt;sha256&gt;[A-F0-9]+)"
+            | eval sha256=lower(sha256)
+            | where isnotnull(sha256) AND sha256!="" AND NOT match(Image,"splunk")
+            | join type=inner sha256 [
+                search index=otx sourcetype="otx:indicator" type="FileHash-SHA256" earliest=0
+                | where "$ioc_type$"="*" OR match("$ioc_type$","FileHash")
+                | eval indicator=lower(indicator)
+                | rename indicator as sha256
+                | dedup sha256
+                | fields sha256
+              ]
+            | eval filename=mvindex(split(Image,"\\"),-1)
+            | stats count as hits min(_time) as first_seen max(_time) as last_seen by sha256 host filename
+            | eval first_seen=strftime(first_seen,"%Y-%m-%d"),
+                   last_seen=strftime(last_seen,"%Y-%m-%d"),
+                   sha256_short=substr(sha256,1,16)."...",
+                   severity=case(hits&gt;50,"Critical",hits&gt;20,"High",hits&gt;5,"Medium",true(),"Low"),
+                   _sev_sort=case(severity="Critical","1",severity="High","2",severity="Medium","3",true(),"4")
+            | sort _sev_sort - hits
+            | fields - sha256 _sev_sort
+            | rename sha256_short as "SHA256"
+                     filename     as "File Name"
+                     host         as "Host"
+                     hits         as "Hits"
+                     first_seen   as "First Seen"
+                     last_seen    as "Last Seen"
+                     severity     as "Severity"
+            | table Severity "File Name" Host Hits "First Seen" "Last Seen" SHA256
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="wrap">true</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051}</colorPalette>
+        </format>
+        <format type="color" field="Hits">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  
+  <!-- ROW 6: TTP Chart + New TTPs This Week -->
+  <row>
+    <panel>
+      <title>Top MITRE ATT&amp;CK Techniques (TTPs)</title>
+      <chart>
+        <search>
+          <query>
+            index=otx sourcetype="otx:pulse" adversary=$threat_actor$
+            | mvexpand attack_ids{}
+            | rename attack_ids{} as technique_id
+            | where technique_id!="" AND technique_id!="null"
+            | stats count by technique_id
+            | sort - count
+            | head 10
+          </query>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
+        </search>
+        <option name="charting.axisTitleX.text">Technique ID</option>
+        <option name="charting.axisTitleY.text">Count</option>
+        <option name="charting.axisTitleY.visibility">visible</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.chart.nullValueMode">zero</option>
+        <option name="charting.chart.orientation">y</option>
+        <option name="charting.chart.showDataLabels">all</option>
+        <option name="charting.drilldown">all</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.seriesColors">[0xDC4E41,0xF1813F,0xF8BE34,0x53A051,0x0099E0,0x7B56DB,0xFF6B6B,0xFFB347,0x87CEEB,0x98FB98]</option>
+        <option name="refresh.display">progressbar</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>New TTPs Observed This Week</title>
+      <table>
+        <search>
+          <query>
+            index=otx sourcetype="otx:pulse" adversary=$threat_actor$
+            | mvexpand attack_ids{}
+            | rename attack_ids{} as technique_id
+            | where technique_id!="" AND technique_id!="null"
+            | stats min(_time) as first_seen count as pulse_count values(adversary) as adversary by technique_id
+            | eval severity=case(pulse_count&gt;20,"Critical",pulse_count&gt;10,"High",pulse_count&gt;5,"Medium",true(),"Low"),
+                   _sev_sort=case(severity="Critical","1",severity="High","2",severity="Medium","3",true(),"4"),
+                   first_seen=strftime(first_seen,"%Y-%m-%d %H:%M"),
+                   adversary=if(adversary="","Unknown",adversary)
+            | sort _sev_sort - first_seen
+            | fields - _sev_sort
+            | rename technique_id as "Technique ID"
+                     first_seen   as "First Seen"
+                     pulse_count  as "Pulse Count"
+                     severity     as "Severity"
+                     adversary    as "Adversary"
+          </query>
+          <earliest>-7d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051}</colorPalette>
+        </format>
+        <format type="color" field="Pulse Count">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  
+  <!-- ROW 7: MITRE ATT&CK Framework Table -->
+  <row>
+    <panel>
+      <title>MITRE ATT&amp;CK Framework - Active TTPs (Last 7 Days)</title>
+      <table>
+        <search>
+          <query>
+            index=otx sourcetype="otx:pulse" earliest=0
+            | mvexpand attack_ids{}
+            | rename attack_ids{} as technique_id
+            | where technique_id!="" AND technique_id!="null"
+            | eval tactic=case(
+                match(technique_id,"T1595|T1592|T1589|T1590|T1591|T1596|T1597|T1598"), "01 - Reconnaissance",
+                match(technique_id,"T1583|T1584|T1585|T1586|T1587|T1588|T1608"), "02 - Resource Development",
+                match(technique_id,"T1189|T1190|T1191|T1192|T1193|T1194|T1195|T1196|T1197|T1199|T1200|T1566|T1078"), "03 - Initial Access",
+                match(technique_id,"T1059|T1106|T1129|T1203|T1204|T1559|T1569"), "04 - Execution",
+                match(technique_id,"T1037|T1053|T1078|T1098|T1133|T1136|T1137|T1176|T1197|T1205|T1505|T1525|T1543|T1546|T1547|T1548|T1554|T1556|T1574"), "05 - Persistence",
+                match(technique_id,"T1055|T1134|T1484|T1548|T1611"), "06 - Privilege Escalation",
+                match(technique_id,"T1006|T1014|T1027|T1036|T1055|T1070|T1078|T1112|T1127|T1140|T1197|T1202|T1205|T1207|T1211|T1216|T1218|T1220|T1221|T1222|T1484|T1497|T1548|T1553|T1562|T1564|T1574|T1578|T1600|T1601|T1610|T1612|T1620|T1622"), "07 - Defense Evasion",
+                match(technique_id,"T1003|T1040|T1056|T1110|T1111|T1187|T1212|T1528|T1539|T1552|T1557|T1558|T1606"), "08 - Credential Access",
+                match(technique_id,"T1007|T1010|T1012|T1016|T1018|T1033|T1040|T1046|T1049|T1057|T1069|T1082|T1083|T1087|T1120|T1124|T1135|T1201|T1217|T1482|T1497|T1518|T1538|T1580|T1613|T1614|T1615|T1619|T1622"), "09 - Discovery",
+                match(technique_id,"T1021|T1072|T1080|T1091|T1210|T1534|T1550|T1563|T1570"), "10 - Lateral Movement",
+                match(technique_id,"T1001|T1011|T1020|T1029|T1030|T1041|T1048|T1052|T1071|T1092|T1095|T1102|T1104|T1105|T1106|T1132|T1205|T1219|T1571|T1572|T1573|T1574"), "11 - Command and Control",
+                match(technique_id,"T1020|T1030|T1041|T1048|T1052|T1567"), "12 - Exfiltration",
+                match(technique_id,"T1485|T1486|T1489|T1490|T1491|T1495|T1496|T1498|T1499|T1531|T1561|T1565"), "13 - Impact",
+                true(), "14 - Other"
+              )
+            | stats values(technique_id) as techniques count as hits dc(adversary) as unique_actors by tactic
+            | eval techniques=mvjoin(techniques,", ")
+            | append [
+                | makeresults count=14
+                | streamstats count as row
+                | eval tactic=mvindex(split("01 - Reconnaissance,02 - Resource Development,03 - Initial Access,04 - Execution,05 - Persistence,06 - Privilege Escalation,07 - Defense Evasion,08 - Credential Access,09 - Discovery,10 - Lateral Movement,11 - Command and Control,12 - Exfiltration,13 - Impact,14 - Other",","),row-1),
+                       techniques="No active TTPs",
+                       hits=0,
+                       unique_actors=0
+                | fields tactic techniques hits unique_actors
+              ]
+            | stats first(techniques) as techniques sum(hits) as hits max(unique_actors) as unique_actors by tactic
+            | eval techniques=if(hits=0,"No active TTPs",techniques),
+                   severity=case(hits&gt;50,"Critical",hits&gt;20,"High",hits&gt;5,"Medium",hits&gt;0,"Low",true(),"None")
+            | sort tactic
+            | rename tactic        as "Tactic"
+                     techniques    as "Active Techniques"
+                     hits          as "Total Hits"
+                     unique_actors as "Unique Actors"
+                     severity      as "Severity"
+          </query>
+          <earliest>-7d</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">row</option>
+        <option name="wrap">true</option>
+        <option name="rowNumbers">false</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Severity">
+          <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051, "None": 0x555555}</colorPalette>
+        </format>
+        <format type="color" field="Total Hits">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+        <format type="color" field="Unique Actors">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  
+  <!-- ROW 8: Feed Health -->
+  <row>
+    <panel>
+      <title>OTX Feed Health - Last Ingest Times</title>
+      <table>
+        <search>
+          <query>
+            index=otx earliest=-24h
+            | stats max(_time) as last_ingest_epoch count as total_events by sourcetype
+            | eval last_ingest=strftime(last_ingest_epoch,"%Y-%m-%d %H:%M:%S")
+            | eval age_minutes=round((now()-last_ingest_epoch)/60,1)
+            | eval status=if(age_minutes &lt; 90,"Healthy","Stale")
+            | fields - last_ingest_epoch
+            | rename sourcetype as "Source Type"
+                     last_ingest as "Last Ingest"
+                     total_events as "Events (24h)"
+                     age_minutes as "Minutes Since Last Ingest"
+                     status as "Status"
+          </query>
+          <earliest>-24h</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="refresh.display">progressbar</option>
+        <format type="color" field="Status">
+          <colorPalette type="map">{"Healthy": 0x53A051, "Stale": 0xDC4E41}</colorPalette>
+        </format>
+        <format type="color" field="Minutes Since Last Ingest">
+          <colorPalette type="minMidMax" maxColor="0xDC4E41" midColor="0xF8BE34" minColor="0x53A051"></colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+</form>
