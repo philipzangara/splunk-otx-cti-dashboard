@@ -146,6 +146,7 @@ You should see `otx:indicator` and `otx:pulse` with non-zero counts.
 - The IOC Type filter does not affect the TTP panels — TTP correlation is based on Sysmon event codes and OTX pulse data, not OTX indicator types
 - The map requires outbound HTTPS to `basemaps.cartocdn.com` for the dark tile layer. If your environment is air-gapped, remove the `mapping.tileLayer.url` and `mapping.tileLayer.attribution` options to fall back to Splunk's default tiles
 - `iplocation` uses Splunk's bundled MaxMind GeoLite2 database — private/RFC1918 addresses and some hosting provider ranges may not resolve and will be excluded from the map and geo tables
+- This dashboard is Windows-only. All environment correlation panels are built around Sysmon event codes and field names (EventCode, Hashes, QueryName, DestinationIp, Image) that are specific to the Sysmon schema. Linux hosts forwarding /var/log to Splunk will not appear in any panel. Linux support would require either dedicated panels built against auditd/syslog fields, or normalizing all endpoint data to Splunk's Common Information Model (CIM)
 
 ---
 
