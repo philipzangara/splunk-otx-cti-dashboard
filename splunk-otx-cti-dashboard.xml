@@ -5,7 +5,7 @@
     <input type="time" token="time_range" searchWhenChanged="true">
       <label>Time Range</label>
       <default>
-        <earliest>-30d</earliest>
+        <earliest>-7d</earliest>
         <latest>now</latest>
       </default>
     </input>
@@ -219,9 +219,8 @@
                 | mvexpand attack_ids{}
                 | rename attack_ids{} as technique_id
                 | where technique_id!="" AND technique_id!="null"
-                | stats count as pulse_count values(name) as pulse_names values(adversary) as actors by technique_id
+                | stats values(name) as pulse_names values(adversary) as actors by technique_id
               ]
-            | where isnotnull(pulse_count)
             | stats count as sysmon_hits max(_time) as last_seen first(pulse_names) as pulse_names first(actors) as actors by technique_id
             | eval last_seen=strftime(last_seen,"%Y-%m-%d %H:%M"),
                    pulse_names=substr(pulse_names,1,50)."..."
@@ -231,7 +230,7 @@
                      sysmon_hits  as "Environment Hits"
                      pulse_names  as "OTX Pulse"
                      actors       as "Threat Actor"
-            | table "Technique ID" "Last Seen" "Environment Hits" "OTX Pulse" "Threat Actor"
+            | table "Technique ID" "Last Seen" "Environment Hits" "Threat Actor" "OTX Pulse" 
           </query>
           <earliest>$time_range.earliest$</earliest>
           <latest>$time_range.latest$</latest>
@@ -517,11 +516,11 @@
   <!-- ROW 7: MITRE ATT&CK Framework Table -->
   <row>
     <panel>
-      <title>MITRE ATT&amp;CK Framework - Active TTPs (Last 7 Days)</title>
+      <title>MITRE ATT&amp;CK Framework - Active TTPs</title>
       <table>
         <search>
           <query>
-            index=otx sourcetype="otx:pulse" earliest=0
+            index=otx sourcetype="otx:pulse"
             | mvexpand attack_ids{}
             | rename attack_ids{} as technique_id
             | where technique_id!="" AND technique_id!="null"
@@ -562,12 +561,13 @@
                      unique_actors as "Unique Actors"
                      severity      as "Severity"
           </query>
-          <earliest>-7d</earliest>
-          <latest>now</latest>
+          <earliest>$time_range.earliest$</earliest>
+          <latest>$time_range.latest$</latest>
         </search>
         <option name="drilldown">row</option>
         <option name="wrap">true</option>
         <option name="rowNumbers">false</option>
+        <option name="count">14</option>
         <option name="refresh.display">progressbar</option>
         <format type="color" field="Severity">
           <colorPalette type="map">{"Critical": 0xDC4E41, "High": 0xF1813F, "Medium": 0xF8BE34, "Low": 0x53A051, "None": 0x555555}</colorPalette>
