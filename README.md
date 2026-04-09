@@ -234,8 +234,8 @@ The Sysmon environment correlation panels were validated using [Atomic Red Team]
 - [AlienVault OTX](https://otx.alienvault.com) for the threat intelligence platform and API
 - [Luke Monahan](https://splunkbase.splunk.com/app/4336) for the TA-otx Splunk Add-on
 - [MITRE ATT&CK](https://attack.mitre.org) for the adversary technique framework
-- [Red Canary](https://github.com/redcanaryco/atomic-red-team)) for Atomic Red Team adversary simulation tests
-- [ECA Cyber Range](https://www.skool.com/eca-cyber-range-4625/about?ref=176bfcb7a0794bdfbd3403e5ed04ac73)) for the Splunk Security Dashboard Challenge
+- [Red Canary](https://github.com/redcanaryco/atomic-red-team) for Atomic Red Team adversary simulation tests
+- [ECA Cyber Range](https://www.skool.com/eca-cyber-range-4625/about?ref=176bfcb7a0794bdfbd3403e5ed04ac73) for the Splunk Security Dashboard Challenge
 
 ---
 
