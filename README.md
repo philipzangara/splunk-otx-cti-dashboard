@@ -8,7 +8,7 @@ A Splunk Classic Dashboard that visualizes Cyber Threat Intelligence (CTI) data 
 
 This dashboard answers one core question a SOC analyst asks every shift: **is threat intelligence from the outside world actively hitting my environment right now?**
 
-It does this by joining live Sysmon telemetry from your Windows endpoints against malicious indicators and adversary TTPs from AlienVault OTX — surfacing not just what threats exist globally, but which ones your machines are actually talking to.
+It does this by joining live Sysmon telemetry from your Windows endpoints against malicious indicators and adversary TTPs from AlienVault OTX. Surfacing not just what threats exist globally, but which ones your machines are actually talking to.
 
 ---
 
@@ -35,7 +35,7 @@ It does this by joining live Sysmon telemetry from your Windows endpoints agains
 | 3 | Critical TTPs in Environment | Single Value KPI | 1 | Sysmon + OTX |
 | 4 | Malicious IPs Detected (Last 24h) | Single Value KPI | 1 | Sysmon + OTX |
 | 5 | Unique Source Countries (Last 24h) | Single Value KPI | 1 | Sysmon + OTX |
-| 6 | OTX Threat Intel Hits - TTPs Active in Your Environment | Table | 2 | Sysmon + OTX |
+| 6 | OTX Threat Intel - TTPs Active in Your Environment | Table | 2 | Sysmon + OTX |
 | 7 | Malicious IP Hits by Location | Bubble Map | 3 | Sysmon + OTX |
 | 8 | Top Countries by Hit Count | Table | 4 | Sysmon + OTX |
 | 9 | Top Malicious IPs | Table | 4 | Sysmon + OTX |
@@ -43,7 +43,7 @@ It does this by joining live Sysmon telemetry from your Windows endpoints agains
 | 11 | OTX Malicious File Hits - Your Environment | Table | 5 | Sysmon + OTX |
 | 12 | Top MITRE ATT&CK Techniques (TTPs) | Bar Chart | 6 | OTX |
 | 13 | New TTPs Observed This Week | Table | 6 | OTX |
-| 14 | MITRE ATT&CK Framework - Active TTPs (Last 7 Days) | Table | 7 | OTX |
+| 14 | MITRE ATT&CK Framework - Active TTPs | Table | 7 | OTX |
 | 15 | OTX Feed Health - Last Ingest Times | Table | 8 | OTX |
 
 ---
@@ -57,7 +57,7 @@ It does this by joining live Sysmon telemetry from your Windows endpoints agains
 | Critical TTPs in Environment | How many adversary techniques seen in OTX pulses are firing at high volume in my Sysmon logs? |
 | Malicious IPs Detected | How many OTX-flagged IPs did my environment connect to in the last 24 hours? |
 | Unique Source Countries | How many countries are malicious connections originating from? |
-| TTPs Active in Environment | Which specific MITRE techniques are both in OTX intelligence and actively observed in my Sysmon data? |
+| OTX Threat Intel - TTPs Active in Environment | Which specific MITRE techniques are both in OTX intelligence and actively observed in my Sysmon data? |
 | Malicious IP Hits by Location | Where geographically are the malicious IPs hitting my environment located? |
 | Top Countries by Hit Count | Which countries are responsible for the most malicious connection attempts? |
 | Top Malicious IPs | Which specific IPs are hitting my environment most frequently and who do they belong to? |
@@ -145,8 +145,7 @@ You should see `otx:indicator` and `otx:pulse` with non-zero counts.
 - The Domain Hits panel uses a fixed 7-day window and the Feed Health panel uses a fixed 24-hour window, regardless of the time range picker setting
 - The IOC Type filter does not affect the TTP panels — TTP correlation is based on Sysmon event codes and OTX pulse data, not OTX indicator types
 - The map requires outbound HTTPS to `basemaps.cartocdn.com` for the dark tile layer. If your environment is air-gapped, remove the `mapping.tileLayer.url` and `mapping.tileLayer.attribution` options to fall back to Splunk's default tiles
-- `iplocation` uses Splunk's bundled MaxMind GeoLite2 database — private/RFC1918 addresses and some hosting provider ranges may not resolve and will be excluded from the map and geo tables
-- This dashboard is Windows-only. All environment correlation panels are built around Sysmon event codes and field names (EventCode, Hashes, QueryName, DestinationIp, Image) that are specific to the Sysmon schema. Linux hosts forwarding /var/log to Splunk will not appear in any panel. Linux support would require either dedicated panels built against auditd/syslog fields, or normalizing all endpoint data to Splunk's Common Information Model (CIM)
+- This dashboard is **Windows-only**. All environment correlation panels are built around Sysmon event codes and field names (`EventCode`, `Hashes`, `QueryName`, `DestinationIp`, `Image`) that are specific to the Sysmon schema. Linux hosts forwarding `/var/log` to Splunk will not appear in any panel. Linux support would require either dedicated panels built against auditd/syslog fields, or normalizing all endpoint data to Splunk's Common Information Model (CIM)
 
 ---
 
@@ -200,7 +199,17 @@ Real-time alerts and dashboard updates
 - Integration with SOAR platforms (Splunk SOAR, Palo Alto XSOAR) for automated response
 - Role-based access control for sensitive threat intel
 
-### MITRE ATT&CK tactic mapping
+### Indicator confidence and criticality scoring
+
+OTX does not provide a reliable criticality score on individual indicators or pulses — the `adversary_threat_level` field exists in the API but is inconsistently populated by community contributors and cannot be depended on to drive severity logic. This dashboard uses OTX pulse count as a proxy for severity, reflecting how broadly a technique is referenced across the threat intelligence community.
+
+In a production deployment this would be replaced with a commercial feed that provides per-indicator confidence and severity scores:
+
+- **Recorded Future** — risk scores per IP, domain, and hash based on real-time intelligence
+- **ThreatConnect** — confidence-scored indicators with source reliability weighting
+- **VirusTotal Enterprise** — detection ratios and community scores per file hash and URL
+
+These scores can be ingested directly into Splunk and used to drive severity coloring and alerting thresholds with much higher fidelity than pulse count alone.
 
 The MITRE ATT&CK Framework panel uses a hardcoded `case` statement to map technique IDs to their corresponding tactics across all 14 tactic categories. This is correct behavior — the mapping is defined by the MITRE ATT&CK framework itself and is not environment-specific. However it requires manual updates when MITRE releases new framework versions.
 
@@ -225,8 +234,8 @@ The Sysmon environment correlation panels were validated using [Atomic Red Team]
 - [AlienVault OTX](https://otx.alienvault.com) for the threat intelligence platform and API
 - [Luke Monahan](https://splunkbase.splunk.com/app/4336) for the TA-otx Splunk Add-on
 - [MITRE ATT&CK](https://attack.mitre.org) for the adversary technique framework
-- [Red Canary](https://redcanary.com) for Atomic Red Team adversary simulation tests
-- [ECA Cyber Range](https://www.skool.com/eca-cyber-range-4625/about?ref=176bfcb7a0794bdfbd3403e5ed04ac73) for the Splunk Security Dashboard Challenge
+- [Red Canary]([https://redcanary.com](https://github.com/redcanaryco/atomic-red-team)) for Atomic Red Team adversary simulation tests
+- [ECA Cyber Range]([https://ellingtoncyber.com](https://www.skool.com/eca-cyber-range-4625/about?ref=176bfcb7a0794bdfbd3403e5ed04ac73)) for the Splunk Security Dashboard Challenge
 
 ---
 
