@@ -576,7 +576,19 @@
     </panel>
   </row>
   
+  <!-- 
+    FEED HEALTH PANEL — REMOVED FROM FINAL SUBMISSION
+    
+    This panel displays the last ingest timestamp for each OTX data source.
+    It requires a fully configured and active TA-otx ingest pipeline to return
+    accurate results. In environments where the ingest has not completed a full
+    cycle the panel will return empty or stale timestamps.
+    
+    To re-enable this panel, remove the opening and closing comment tags.
+-->
+  
   <!-- ROW 8: Feed Health -->
+  <!--
   <row>
     <panel>
       <title>OTX Feed Health - Last Ingest Times</title>
@@ -606,6 +618,8 @@
       </table>
     </panel>
   </row>
+  -->
+  
   <row>
   <!-- Extra space at the bottom -->
   <panel>
