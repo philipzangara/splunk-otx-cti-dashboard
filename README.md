@@ -10,6 +10,7 @@ This dashboard answers one core question a SOC analyst asks every shift: **is th
 
 It joins live Sysmon telemetry from Windows endpoints against malicious indicators and adversary TTPs from AlienVault OTX. Surfacing not just what threats exist globally, but which ones your machines are actually talking to.
 
+![Dashboard Overview](dashboard-overview.jpg)
 ---
 
 ## Features
